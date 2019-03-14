@@ -56,18 +56,19 @@ module.exports = function createService(url, options) {
       },
 
       /**
+       * /**
        * Validate message
        *
        * @param {Object} payload
        * @param {Object} params params it's validation schema
        * it can be defined for each queue as params field
-       * @returns {Promise<void>}
+       * @returns {*}
        */
-      async validate(payload, params) {
+      validate(payload, params) {
         const { options: { validation }, validator } = this.broker;
         if (validation && params) {
           const check = validator.compile(params);
-          const result = await check(payload);
+          const result = check(payload);
           if (result === true) {
             return this.Promise.resolve();
           } else {
