@@ -24,8 +24,7 @@ module.exports = function createService(url, options) {
        * @param {Object} options
        * @returns {Promise}
        */
-      async sendToQueue(queueName, message, options) {
-        await this.channel.assertQueue(queueName);
+      sendToQueue(queueName, message, options) {
         return this.channel
           .sendToQueue(queueName, Buffer.from(JSON.stringify(message)), options);
       },
@@ -130,12 +129,14 @@ module.exports = function createService(url, options) {
       if (this.schema.queues) {
         await Promise.all(Object.entries(this.schema.queues)
           .map(async ([queueName, options]) => {
-            const { prefetch, queueOpts = { durable: true } } = options;
+            const { assertOnly, prefetch, queueOpts = { durable: true } } = options;
             await this.channel.assertQueue(queueName, queueOpts);
-            if (prefetch) {
-              await this.channel.prefetch(prefetch);
+            if (!assertOnly) {
+              if (prefetch) {
+                await this.channel.prefetch(prefetch);
+              }
+              this.channel.consume(queueName, this.processMessage(options));
             }
-            this.channel.consume(queueName, this.processMessage(options));
           }));
       }
       return this.Promise.resolve();
