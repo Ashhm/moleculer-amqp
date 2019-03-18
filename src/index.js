@@ -24,7 +24,8 @@ module.exports = function createService(url, options) {
        * @param {Object} options
        * @returns {Promise}
        */
-      sendToQueue(queueName, message, options) {
+      async sendToQueue(queueName, message, options) {
+        await this.channel.assertQueue(queueName);
         return this.channel
           .sendToQueue(queueName, Buffer.from(JSON.stringify(message)), options);
       },
