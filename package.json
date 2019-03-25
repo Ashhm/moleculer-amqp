@@ -1,13 +1,13 @@
 {
-  "name": "moleculer-ampq",
+  "name": "moleculer-amqp",
   "version": "1.0.0",
-  "description": "Task queues fot rabbitMQ with ampqlib",
+  "description": "Task queues fot rabbitMQ with amqplib",
   "main": "index.js",
   "author": "Bulakh Serhii",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git@github.com:Ashhm/moleculer-ampq.git"
+    "url": "git@github.com:Ashhm/moleculer-amqp.git"
   },
   "engines": {
     "node": ">= 8.x.x"
