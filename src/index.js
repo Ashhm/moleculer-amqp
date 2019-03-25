@@ -4,7 +4,7 @@ const amqplib = require('amqplib');
 const { ValidationError } = require('moleculer');
 
 /**
- * AMPQ mixin
+ * AMQP mixin
  *
  * Provide work tasks queues for rabbitMQ
  *
@@ -14,7 +14,7 @@ const { ValidationError } = require('moleculer');
  */
 module.exports = function createService(url, options) {
   return {
-    name: 'ampq',
+    name: 'amqp',
     methods: {
       /**
        * Send message to queue

@@ -7,13 +7,13 @@ const sinon = require('sinon');
 const { ServiceBroker, Service } = require('moleculer');
 const sinonChai = require('sinon-chai');
 
-const ampqMixin = proxyquire('../src', { amqplib });
+const amqpMixin = proxyquire('../src', { amqplib });
 const url = 'amqp://localhost';
 const { expect } = chai;
 chai.should();
 chai.use(sinonChai);
 
-describe('AMPQ', () => {
+describe('AMQP queues', () => {
   const broker = new ServiceBroker({ logger: false });
   const mixinMethods = [
     'acceptMessage',
@@ -27,7 +27,7 @@ describe('AMPQ', () => {
     let service;
 
     before('create a service', async () => {
-      service = await broker.createService(ampqMixin(url));
+      service = await broker.createService(amqpMixin(url));
     });
 
     it('should be created', () => expect(service).to.exist);
@@ -44,7 +44,7 @@ describe('AMPQ', () => {
     const errorStrategy = sinon.spy();
     const schema = {
       name: 'test',
-      mixins: [ampqMixin(url)],
+      mixins: [amqpMixin(url)],
       queues: {
         simple: {
           handler: simpleQueueHandler,
@@ -106,7 +106,7 @@ describe('AMPQ', () => {
 
     describe('create custom queues with options', () => {
       it('should set proper options for withOpts', () => {
-        // Not sure that this should work with real ampqlib
+        // Not sure that this should work with real amqplib
         const { connection: { queues: { withOpts } } } = service.channel;
         expect(withOpts)
           .to.be.an('object')
@@ -125,7 +125,7 @@ describe('AMPQ', () => {
       before('wait for event processing', done => setTimeout(done, 500));
 
       it('should call errorStrategy on message appear in simple queue', () => {
-        const args = errorStrategy.args[0];
+        const { args } = errorStrategy.getCall(0);
         expect(args[0]).to.be.instanceof(Error);
         expect(args[1]).to.deep.equal(wrongMessage);
         return errorStrategy.should.have.been.calledOnce;
