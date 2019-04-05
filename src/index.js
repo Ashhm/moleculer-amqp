@@ -17,12 +17,33 @@ module.exports = function createService(url, options) {
     name: 'amqp',
     methods: {
       /**
-       * Send message to queue
+       * Send message to exchange
        *
-       * @param {Sting} queueName
+       * @param {String} exchange
+       * @param {String} routingKey
        * @param {Object} message
        * @param {Object} options
-       * @returns {Promise}
+       * @returns {*|PromiseLike<void>|{headers, ticket, messageId, clusterId,
+       * priority, type, mandatory, userId, immediate, deliveryMode, appId,
+       * replyTo, contentEncoding, exchange, correlationId, expiration,
+       * contentType, routingKey, timestamp}}
+       *
+       * @link https://www.squaremobius.net/amqp.node/channel_api.html#channel_publish
+       */
+      publish(exchange = '', routingKey, message, options) {
+        return this.channel
+          .publish(exchange, routingKey, Buffer.from(JSON.stringify(message)), options);
+      },
+      /**
+       * Send message to queue
+       *
+       * @param {String} queueName
+       * @param {Object} message
+       * @param {Object} options
+       * @returns {*|PromiseLike<void>|{headers, ticket, messageId, clusterId,
+       * priority, type, mandatory, userId, immediate, deliveryMode, appId,
+       * replyTo, contentEncoding, exchange, correlationId, expiration,
+       * contentType, routingKey, timestamp}}
        */
       sendToQueue(queueName, message, options) {
         return this.channel
@@ -34,7 +55,7 @@ module.exports = function createService(url, options) {
        *
        * @param {Object} message
        * @param {Boolean[]} args
-       * @returns {Promise}
+       * @returns {void|*|{deliveryTag, multiple}}
        *
        * @link http://www.squaremobius.net/amqp.node/channel_api.html#channel_ack
        */
@@ -47,7 +68,7 @@ module.exports = function createService(url, options) {
        *
        * @param {Object} message
        * @param {Boolean} args
-       * @returns {Promise}
+       * @returns {{requeue, deliveryTag, multiple}|void|*}
        *
        * @link http://www.squaremobius.net/amqp.node/channel_api.html#channel_nack
        */
@@ -137,6 +158,13 @@ module.exports = function createService(url, options) {
               }
               this.channel.consume(queueName, this.processMessage(options));
             }
+          }));
+      }
+      if (this.schema.exchanges) {
+        await Promise.all(Object.entries(this.schema.exchanges)
+          .map(async ([exchangeName, options]) => {
+            const { exchangeOpts = { durable: true }, type = 'direct' } = options;
+            await this.channel.assertExchange(exchangeName, type, exchangeOpts);
           }));
       }
       return this.Promise.resolve();
