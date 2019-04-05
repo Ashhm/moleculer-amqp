@@ -67,7 +67,32 @@ describe('AMQP queues', () => {
           prefetch: 1,
         },
       },
+      exchanges: {
+        direct: {
+          type: 'direct',
+          exchangeOpts: {
+            durable: true,
+          },
+        },
+        fanout: {
+          type: 'fanout',
+          exchangeOpts: {
+            autoDelete: true,
+          },
+        },
+        topic: {
+          type: 'topic',
+          exchangeOpts: {
+            durable: true,
+            internal: true,
+          },
+        },
+        headers: {
+          type: 'headers',
+        },
+      },
     };
+    const simpleMessage = {};
     let service;
 
     before('create a service', async () => {
@@ -80,23 +105,44 @@ describe('AMQP queues', () => {
     it('should be an instance of Service',
       () => expect(service).to.be.an.instanceof(Service));
 
-    describe('consume messages from queue', () => {
-      const simpleMessage = {};
+    it('all mixin methods should be available', () => {
+      expect(service)
+        .to.be.an('object')
+        .that.include.all.keys(mixinMethods)
+        .and.satisfy(service => mixinMethods
+          .every(method => expect(service[method])
+            .to.be.a('function')));
+    });
 
+    describe('assert to exchanges', () => {
+      it('should call assertExchange channel method 4 times', () => {
+        service.channel.assertExchange.should.have.callCount(4);
+      });
+    });
+
+    describe('publish to queue', () => {
+      before('bind queue to exchange',
+        () => service.channel.bindQueue('simple', 'direct', 'routingKey'));
+
+      before('publish message', () => {
+        service.publish('direct', 'routingKey', simpleMessage);
+      });
+
+      after('clear spy history', () => {
+        simpleQueueHandler.resetHistory();
+      });
+
+      it('should call simpleQueueHandler on message appear in simple queue', () => {
+        simpleQueueHandler.should.have.been.calledWith(simpleMessage);
+        return simpleQueueHandler.should.have.been.calledOnce;
+      });
+    });
+
+    describe('consume messages from queue', () => {
       before('send message to simple queue',
         () => service.sendToQueue('simple', simpleMessage));
 
       before('wait for event processing', done => setTimeout(done, 500));
-
-      it('all mixin methods should be available', () => {
-        expect(service)
-          .to.be.an('object')
-          .that.include.all.keys(mixinMethods)
-          .and.satisfy(service => mixinMethods
-            .every(method => expect(service[method])
-              .to.be.a('function')));
-      });
-
 
       it('should call simpleQueueHandler on message appear in simple queue', () => {
         simpleQueueHandler.should.have.been.calledWith(simpleMessage);
