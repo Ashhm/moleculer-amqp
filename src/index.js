@@ -198,6 +198,7 @@ module.exports = function createService(url, socketOptions) {
               .reject(new ValidationError('Parameters validation error!', null, result));
           }
         }
+        return this.Promise.resolve();
       },
 
       /**

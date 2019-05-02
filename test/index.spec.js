@@ -116,8 +116,8 @@ describe('AMQP mixin', () => {
       expect(service)
         .to.be.an('object')
         .that.include.all.keys(mixinMethods)
-        .and.satisfy(service => mixinMethods
-          .every(method => expect(service[method])
+        .and.satisfy(mixins => mixinMethods
+          .every(method => expect(mixins[method])
             .to.be.a('function')));
     });
 
