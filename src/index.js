@@ -1,7 +1,16 @@
 'use strict';
 
 const amqplib = require('amqplib');
-const { ValidationError } = require('moleculer');
+const {
+  ValidationError,
+  ServiceSchemaError,
+} = require('moleculer');
+
+const SERVICE_STATUSES = {
+  CREATED: 'CREATED',
+  STARTED: 'STARTED',
+  STOPPED: 'STOPPED',
+};
 
 /**
  * AMQP mixin
@@ -9,13 +18,105 @@ const { ValidationError } = require('moleculer');
  * Provide work tasks queues for rabbitMQ
  *
  * @param {String} url RabbitMQ connection string
- * @param {Object} options Connection socket options
+ * @param {Object} socketOptions Connection socket options
  * @returns {*}
  */
-module.exports = function createService(url, options) {
+module.exports = function createService(url, socketOptions) {
   return {
     name: 'amqp',
+    metadata: {
+      reconnectTimeout: 5000,
+    },
     methods: {
+      /**
+       * Connect to rabbitMQ with socketOptions.
+       * Reconnect is supported
+       *
+       * @returns {Promise<void>}
+       * @private
+       */
+      async _connect() {
+        let connectionTimeout;
+        const reconnect = () => {
+          if (!connectionTimeout) {
+            connectionTimeout = setTimeout(this._connect, this.metadata.reconnectTimeout);
+          }
+        };
+
+        if (this.serviceStatus !== SERVICE_STATUSES.STOPPED) {
+          try {
+            const connection = await amqplib.connect(socketOptions);
+            this.logger.info('Connected to RabbitQM successfully.');
+
+            connection.on('error', (err) => {
+              this.channel = null;
+              this.logger.error(err);
+              this.logger.info('Reconnecting to RabbitQM...');
+              reconnect();
+            });
+
+            connection.on('close', () => {
+              this.logger.info('Connection to RabbitQM has been closed!');
+              reconnect();
+            });
+            clearTimeout(connectionTimeout);
+
+            this.channel = await connection.createChannel();
+
+            // Re-setup all handlers and assertion for current channel
+            if (this.serviceStatus === SERVICE_STATUSES.STARTED) {
+              await this._setup();
+            }
+          } catch (err) {
+            this.channel = null;
+            this.logger.error(err);
+            reconnect();
+          }
+        }
+      },
+
+      /**
+       * Setup channel queues and exchanges
+       *
+       * @returns {Promise<*>}
+       * @private
+       */
+      async _setup() {
+        try {
+          const { queues, exchanges, channel = {} } = this.schema;
+          await this.channel.prefetch(channel.prefetch || 1);
+
+          if (queues) {
+            await this.Promise.all(Object.entries(queues)
+              .map(async ([queueName, options]) => {
+                const { queueOpts = { durable: true }, ...restOptions } = options;
+                await this.channel.assertQueue(queueName, queueOpts);
+                if (restOptions.handler) {
+                  if (!(restOptions.handler instanceof Function)) {
+                    const message = 'Queue handler should be a function';
+                    throw new ServiceSchemaError(message, { queueName, options });
+                  }
+                  this.channel.consume(queueName, this.processMessage(restOptions));
+                }
+              }));
+          }
+
+          if (exchanges) {
+            await this.Promise.all(Object.entries(this.schema.exchanges)
+              .map(async ([exchangeName, options]) => {
+                const { exchangeOpts = { durable: true }, type = 'direct' } = options;
+                await this.channel.assertExchange(exchangeName, type, exchangeOpts);
+              }));
+          }
+
+          // TODO: Support channel binds
+          return this.Promise.resolve();
+        } catch (err) {
+          this.logger.error(err);
+          return this.Promise.reject(err);
+        }
+      },
+
       /**
        * Send message to exchange
        *
@@ -34,6 +135,7 @@ module.exports = function createService(url, options) {
         return this.channel
           .publish(exchange, routingKey, Buffer.from(JSON.stringify(message)), options);
       },
+
       /**
        * Send message to queue
        *
@@ -77,7 +179,6 @@ module.exports = function createService(url, options) {
       },
 
       /**
-       * /**
        * Validate message
        *
        * @param {Object} payload
@@ -138,43 +239,25 @@ module.exports = function createService(url, options) {
      * @returns {Promise<void>}
      */
     async created() {
-      const connection = await amqplib.connect(url, options);
-      this.channel = await connection.createChannel();
+      this.serviceStatus = SERVICE_STATUSES.CREATED;
+      await this._connect();
     },
 
     /**
      * Service started hook
-     * @returns {Promise<*>}
+     * @returns {Promise<void>}
      */
     async started() {
-      if (this.schema.queues) {
-        await Promise.all(Object.entries(this.schema.queues)
-          .map(async ([queueName, options]) => {
-            const { assertOnly, prefetch, queueOpts = { durable: true } } = options;
-            await this.channel.assertQueue(queueName, queueOpts);
-            if (!assertOnly) {
-              if (prefetch) {
-                await this.channel.prefetch(prefetch);
-              }
-              this.channel.consume(queueName, this.processMessage(options));
-            }
-          }));
-      }
-      if (this.schema.exchanges) {
-        await Promise.all(Object.entries(this.schema.exchanges)
-          .map(async ([exchangeName, options]) => {
-            const { exchangeOpts = { durable: true }, type = 'direct' } = options;
-            await this.channel.assertExchange(exchangeName, type, exchangeOpts);
-          }));
-      }
-      return this.Promise.resolve();
+      this.serviceStatus = SERVICE_STATUSES.STARTED;
+      await this._setup();
     },
 
     /**
      * Service stopped hook
-     * @returns {Promise<*>}
+     * @returns {Promise<void>}
      */
     async stopped() {
+      this.serviceStatus = SERVICE_STATUSES.STOPPED;
       await this.channel.connection.close();
     },
   };
