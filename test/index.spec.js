@@ -192,82 +192,76 @@ describe('AMQP mixin', () => {
       mixins: [amqpMixin(url)],
     };
     let connection;
-    let channel;
     let clock;
     let service;
-    let spies;
-
-    before('create a service', async () => {
-      service = await broker.createService(schema);
-    });
-
-    before('get connection and channel', () => {
-      setImmediate(() => {
-        ({ channel, channel: { connection } } = service);
-      });
-    });
-
-    before('add stubs and spies', () => {
-      spies = [
-        sinon.spy(service, '_connect'),
-        sinon.spy(service, '_setup'),
-      ];
-    });
 
     before('use fake timers', () => {
       clock = sinon.useFakeTimers();
     });
 
-    describe('on service created', () => {
-      after('clear spies', () => {
-        amqplib.connect.resetHistory();
-      });
-
-      it('should call amqplib connect',
-        () => expect(amqplib.connect).to.have.been.calledOnce);
-
-      it('connection and channel should be defined',
-        () => expect(connection).to.exist && expect(channel).to.exist);
-
-      it('should not call channel prefetch',
-        () => expect(channel.prefetch).to.not.have.been.calledOnce);
+    after('restore timers', () => {
+      clock.restore();
     });
 
-    describe('on service started', () => {
-      before('run broker', () => broker.start());
-
-      after('clear spies', () => {
-        service._setup.resetHistory();
+    describe('on service hooks', () => {
+      before('create a service', async () => {
+        service = await broker.createService(schema);
       });
 
-      it('should call service _setup method',
-        () => expect(service._setup).to.have.been.calledOnce);
-    });
-
-    describe('on service stopped', () => {
-      before('stop broker', () => broker.stop());
-
-      after('clear spies', () => {
-        amqplib.connect.resetHistory();
-        service._connect.resetHistory();
+      before('add stubs and spies', () => {
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
       });
 
-      after('destroy service', () => broker.destroyService(service));
+      describe('created', () => {
+        after('clear spies', () => {
+          sinon.resetHistory();
+        });
 
-      it('should call connect after reconnection timeout', () => {
-        clock.tick(service.metadata.reconnectTimeout);
-        return expect(service._connect).to.have.been.calledOnce;
+        it('should not call amqplib connect',
+          () => expect(amqplib.connect).to.not.have.been.calledOnce);
       });
 
-      it('should not call connect after next reconnection timeout', () => {
-        clock.tick(service.metadata.reconnectTimeout);
-        return expect(service._connect).to.have.been.calledOnce;
+      describe('started', () => {
+        before('run broker', () => broker.start());
+
+        before('get connection', () => {
+          ({ channel: { connection } } = service);
+        });
+
+        after('clear spies', () => {
+          amqplib.connect.resetHistory();
+          sinon.resetHistory();
+        });
+
+        it('should call service _setup method',
+          () => expect(service._setup).to.have.been.calledOnce);
+
+        it('should not call service _reconnect method',
+          () => expect(service._reconnect).to.not.have.been.called);
       });
 
-      it('should not call amqplib connect',
-        () => expect(amqplib.connect).to.not.have.been.called);
+      describe('stopped', () => {
+        before('stop broker', () => broker.stop());
 
-      it('should not set service channel to null', () => expect(service.channel).not.to.be.null);
+        after('clear spies', () => {
+          amqplib.connect.resetHistory();
+          sinon.resetHistory();
+        });
+
+        after('destroy service', () => broker.destroyService(service));
+
+        it('should not call connect after reconnection timeout', () => {
+          clock.tick(service.metadata.reconnectTimeout);
+          return expect(service._connect).to.not.have.been.called;
+        });
+
+        it('should not call amqplib connect',
+          () => expect(amqplib.connect).to.not.have.been.called);
+
+        it('should set service channel to null', () => expect(service.channel).to.be.null);
+      });
     });
 
     describe('on connection closed', () => {
@@ -277,40 +271,32 @@ describe('AMQP mixin', () => {
       });
 
       before('add stubs and spies', () => {
-        spies.push(sinon.spy(service, '_connect'));
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
       });
 
       before('close amqp connection', () => {
-        setImmediate(() => {
-          service.channel.connection.close();
-        });
+        service.channel.connection.close();
       });
 
       after('clear spies', () => {
         amqplib.connect.resetHistory();
-        service._connect.resetHistory();
+        sinon.resetHistory();
       });
 
       after('destroy service', () => Promise
         .all([broker.stop(), broker.destroyService(service)]));
 
-      it('should not set service channel to null', () => {
-        clock.tick(100);
-        return expect(service.channel).not.to.be.null;
-      });
+      it('should set service channel to null',
+        () => expect(service.channel).to.be.null);
 
-      it('should call connect after reconnection timeout', () => {
-        clock.tick(service.metadata.reconnectTimeout);
-        return expect(service._connect).to.have.been.calledOnce;
-      });
+      it('should not call _reconnect', () => expect(service._reconnect).to.not.have.been.called);
 
-      it('should not call connect after next reconnection timeout', () => {
-        clock.tick(service.metadata.reconnectTimeout);
-        return expect(service._connect).to.have.been.calledOnce;
-      });
+      it('should not call _connect', () => expect(service._connect).to.not.have.been.called);
 
-      it('should call amqplib connect',
-        () => expect(amqplib.connect).to.have.been.called);
+      it('should call amqplib connect only once',
+        () => expect(amqplib.connect).to.have.been.calledOnce);
     });
 
     describe('on connection error', () => {
@@ -320,41 +306,44 @@ describe('AMQP mixin', () => {
       });
 
       before('add stubs and spies', () => {
-        spies.push(sinon.spy(service, '_connect'));
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
       });
 
       before('get connection and call extended connection error method', () => {
-        setImmediate(() => {
-          ({ channel: { connection } } = service);
-          connection.closeWithError = sinon.stub().callsFake(() => {
-            connection.on.withArgs('error').yield();
-            connection.close();
-          });
-          connection.closeWithError();
+        ({ channel: { connection } } = service);
+        connection.closeWithError = sinon.stub().callsFake(() => {
+          connection.on.withArgs('error').yield();
+          connection.close();
         });
+        connection.closeWithError();
       });
 
       after('clear spies', () => {
         amqplib.connect.resetHistory();
-        service._connect.resetHistory();
+        sinon.resetHistory();
       });
 
       after('destroy service', () => Promise
         .all([broker.stop(), broker.destroyService(service)]));
 
-      it('should set service channel to null', () => {
-        clock.tick(100);
-        return expect(service.channel).to.be.null;
-      });
+      it('should set service channel to null', () => expect(service.channel).to.be.null);
 
-      it('should call connect after reconnection timeout', () => {
+      it('should call _reconnect',
+        () => expect(service._reconnect).to.have.been.calledOnce);
+
+      it('should call _connect after reconnection timeout', () => {
         clock.tick(service.metadata.reconnectTimeout);
         return expect(service._connect).to.have.been.calledOnce;
       });
+
+      it('should call _setup', () => expect(service._setup).to.have.been.calledOnce);
 
       it('should not call connect after next reconnection timeout', () => {
         clock.tick(service.metadata.reconnectTimeout);
-        return expect(service._connect).to.have.been.calledOnce;
+        return expect(service._connect).to.not.have.been.calledTwice
+          && expect(service._connect).to.have.been.calledOnce;
       });
 
       it('should call amqplib connect',
@@ -369,38 +358,32 @@ describe('AMQP mixin', () => {
         return broker.start();
       });
 
-      before('add stubs', () => {
-        spies.push(sinon.spy(service, '_connect'));
-      });
-
-      before('emulate errors on amqp connect', () => {
-        amqplib.connect.onCall(1).rejects();
-        amqplib.connect.onCall(2).rejects();
+      before('add stubs and spies', () => {
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
+        amqplib.connect.onCall(1).callsFake(() => Promise.reject());
+        amqplib.connect.onCall(2).callsFake(() => Promise.reject());
       });
 
       before('get connection and call extended connection error method', () => {
-        setImmediate(() => {
-          ({ channel: { connection } } = service);
-          connection.closeWithError = sinon.stub().callsFake(() => {
-            connection.on.withArgs('error').yield();
-            connection.close();
-          });
-          connection.closeWithError();
+        ({ channel: { connection } } = service);
+        connection.closeWithError = sinon.stub().callsFake(() => {
+          connection.on.withArgs('error').yield();
+          connection.close();
         });
+        connection.closeWithError();
       });
 
       after('clear spies', () => {
         amqplib.connect.resetHistory();
-        service._connect.resetHistory();
+        sinon.resetHistory();
       });
 
       after('destroy service', () => Promise
         .all([broker.stop(), broker.destroyService(service)]));
 
-      it('should set service channel to null', () => {
-        clock.tick(100);
-        return expect(service.channel).to.be.null;
-      });
+      it('should set service channel to null', () => expect(service.channel).to.be.null);
 
       it('should call connect after first reconnection timeout', () => {
         clock.tick(service.metadata.reconnectTimeout);
@@ -421,9 +404,6 @@ describe('AMQP mixin', () => {
         clock.tick(service.metadata.reconnectTimeout);
         return expect(service._connect).to.have.been.calledThrice;
       });
-
-      it('should call amqplib connect',
-        () => expect(amqplib.connect).to.have.been.called);
 
       it('should set service channel', () => expect(service.channel).to.exist);
     });

@@ -2,16 +2,11 @@
 
 const amqplib = require('amqplib');
 const {
-  ValidationError,
+  Errors: {
+    ValidationError,
+  },
   ServiceSchemaError,
 } = require('moleculer');
-
-const SERVICE_STATUSES = {
-  CREATED: 'CREATED',
-  STARTED: 'STARTED',
-  STOPPED: 'STOPPED',
-};
-
 /**
  * AMQP mixin
  *
@@ -36,42 +31,44 @@ module.exports = function createService(url, socketOptions) {
        * @private
        */
       async _connect() {
-        let connectionTimeout;
-        const reconnect = () => {
-          if (!connectionTimeout) {
-            connectionTimeout = setTimeout(this._connect, this.metadata.reconnectTimeout);
-          }
-        };
+        try {
+          this.logger.info('Connecting to the transporter with AMQP mixin...');
+          const connection = await amqplib.connect(socketOptions);
+          this.logger.info('AMQP mixin is connected.');
+          this._isReconnecting = false;
 
-        if (this.serviceStatus !== SERVICE_STATUSES.STOPPED) {
-          try {
-            const connection = await amqplib.connect(socketOptions);
-            this.logger.info('Connected to RabbitQM successfully.');
-
-            connection.on('error', (err) => {
-              this.channel = null;
-              this.logger.error(err);
-              this.logger.info('Reconnecting to RabbitQM...');
-              reconnect();
-            });
-
-            connection.on('close', () => {
-              this.logger.info('Connection to RabbitQM has been closed!');
-              reconnect();
-            });
-            clearTimeout(connectionTimeout);
-
-            this.channel = await connection.createChannel();
-
-            // Re-setup all handlers and assertion for current channel
-            if (this.serviceStatus === SERVICE_STATUSES.STARTED) {
-              await this._setup();
-            }
-          } catch (err) {
+          connection.on('error', (err) => {
             this.channel = null;
-            this.logger.error(err);
-            reconnect();
-          }
+            this.logger.warn('AMQP mixin connection error.', err);
+            this._reconnect();
+          });
+
+          connection.on('close', () => {
+            this.channel = null;
+            this.logger.info('AMQP mixin connection is closed.');
+          });
+
+          this.channel = await connection.createChannel();
+          this.logger.info('AMQP mixin channel is created');
+          await this._setup();
+        } catch (err) {
+          this.channel = null;
+          this._isReconnecting = false;
+          this.logger.warn('Connection with AMQP mixin is failed.', err);
+          this._reconnect();
+        }
+      },
+
+      /**
+       * Reconnect to rabbitMQ with timeout
+       *
+       * @private
+       */
+      _reconnect() {
+        if (!this._isReconnecting) {
+          this._isReconnecting = true;
+          this.logger.info('Reconnecting with AMQP mixin...');
+          setTimeout(this._connect, this.metadata.reconnectTimeout);
         }
       },
 
@@ -235,22 +232,13 @@ module.exports = function createService(url, socketOptions) {
       },
     },
 
-    /**
-     * Service created hook
-     * @returns {Promise<void>}
-     */
-    async created() {
-      this.serviceStatus = SERVICE_STATUSES.CREATED;
-      await this._connect();
-    },
 
     /**
      * Service started hook
      * @returns {Promise<void>}
      */
     async started() {
-      this.serviceStatus = SERVICE_STATUSES.STARTED;
-      await this._setup();
+      await this._connect();
     },
 
     /**
@@ -258,7 +246,6 @@ module.exports = function createService(url, socketOptions) {
      * @returns {Promise<void>}
      */
     async stopped() {
-      this.serviceStatus = SERVICE_STATUSES.STOPPED;
       await this.channel.connection.close();
     },
   };
