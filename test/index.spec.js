@@ -352,7 +352,7 @@ describe('AMQP mixin', () => {
       it('should set service channel', () => expect(service.channel).to.exist);
     });
 
-    describe('on multiply errors', () => {
+    describe('on multiple errors', () => {
       before('create a service', async () => {
         service = await broker.createService(schema);
         return broker.start();
