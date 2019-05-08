@@ -23,8 +23,11 @@
     "moleculer": "0.13.7"
   },
   "keywords": [
+    "amqp",
     "microservice",
-    "moleculer"
+    "moleculer",
+    "queues",
+    "rabbitmq"
   ],
   "devDependencies": {
     "amqplib-mocks": "^1.3.0",
