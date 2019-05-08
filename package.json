@@ -1,7 +1,7 @@
 {
   "name": "moleculer-amqp",
-  "version": "1.0.0",
-  "description": "Task queues fot rabbitMQ with amqplib",
+  "version": "0.1.0",
+  "description": "Work queues for rabbitMQ with amqplib",
   "main": "index.js",
   "author": "Bulakh Serhii",
   "license": "MIT",
@@ -13,13 +13,22 @@
     "node": ">= 8.x.x"
   },
   "scripts": {
+    "dev": "nodemon examples",
     "eslint": "eslint .",
-    "test": "mocha"
+    "ci": "mocha --watch",
+    "test": "nyc mocha"
   },
   "dependencies": {
     "amqplib": "0.5.3",
     "moleculer": "0.13.7"
   },
+  "keywords": [
+    "amqp",
+    "microservice",
+    "moleculer",
+    "queues",
+    "rabbitmq"
+  ],
   "devDependencies": {
     "amqplib-mocks": "^1.3.0",
     "chai": "4.2.0",
@@ -28,6 +37,8 @@
     "eslint-plugin-import": "2.16.0",
     "eslint-plugin-mocha": "5.3.0",
     "mocha": "6.0.2",
+    "nodemon": "^1.19.0",
+    "nyc": "^14.1.0",
     "proxyquire": "2.1.0",
     "sinon": "7.2.7",
     "sinon-chai": "3.3.0"

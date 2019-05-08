@@ -1,21 +1,119 @@
 'use strict';
 
 const amqplib = require('amqplib');
-const { ValidationError } = require('moleculer');
-
+const {
+  Errors: {
+    ValidationError,
+  },
+  ServiceSchemaError,
+} = require('moleculer');
 /**
  * AMQP mixin
  *
  * Provide work tasks queues for rabbitMQ
  *
  * @param {String} url RabbitMQ connection string
- * @param {Object} options Connection socket options
+ * @param {Object} socketOptions Connection socket options
  * @returns {*}
  */
-module.exports = function createService(url, options) {
+module.exports = function createService(url, socketOptions) {
   return {
     name: 'amqp',
+    metadata: {
+      reconnectTimeout: 5000,
+    },
     methods: {
+      /**
+       * Connect to rabbitMQ with socketOptions.
+       * Reconnect is supported
+       *
+       * @returns {Promise<void>}
+       * @private
+       */
+      async _connect() {
+        try {
+          this.logger.info('Connecting to the transporter with AMQP mixin...');
+          const connection = await amqplib.connect(socketOptions);
+          this.logger.info('AMQP mixin is connected.');
+          this._isReconnecting = false;
+
+          connection.on('error', (err) => {
+            this.channel = null;
+            this.logger.warn('AMQP mixin connection error.', err);
+            this._reconnect();
+          });
+
+          connection.on('close', () => {
+            this.channel = null;
+            this.logger.info('AMQP mixin connection is closed.');
+          });
+
+          this.channel = await connection.createChannel();
+          this.logger.info('AMQP mixin channel is created');
+          await this._setup();
+        } catch (err) {
+          this.channel = null;
+          this._isReconnecting = false;
+          this.logger.warn('Connection with AMQP mixin is failed.', err);
+          this._reconnect();
+        }
+      },
+
+      /**
+       * Reconnect to rabbitMQ with timeout
+       *
+       * @private
+       */
+      _reconnect() {
+        if (!this._isReconnecting) {
+          this._isReconnecting = true;
+          this.logger.info('Reconnecting with AMQP mixin...');
+          setTimeout(this._connect, this.metadata.reconnectTimeout);
+        }
+      },
+
+      /**
+       * Setup channel queues and exchanges
+       *
+       * @returns {Promise<*>}
+       * @private
+       */
+      async _setup() {
+        try {
+          const { queues, exchanges, channel = {} } = this.schema;
+          await this.channel.prefetch(channel.prefetch || 1);
+
+          if (queues) {
+            await this.Promise.all(Object.entries(queues)
+              .map(async ([queueName, options]) => {
+                const { queueOpts = { durable: true }, ...restOptions } = options;
+                await this.channel.assertQueue(queueName, queueOpts);
+                if (restOptions.handler) {
+                  if (!(restOptions.handler instanceof Function)) {
+                    const message = 'Queue handler should be a function';
+                    throw new ServiceSchemaError(message, { queueName, options });
+                  }
+                  this.channel.consume(queueName, this.processMessage(restOptions));
+                }
+              }));
+          }
+
+          if (exchanges) {
+            await this.Promise.all(Object.entries(this.schema.exchanges)
+              .map(async ([exchangeName, options]) => {
+                const { exchangeOpts = { durable: true }, type = 'direct' } = options;
+                await this.channel.assertExchange(exchangeName, type, exchangeOpts);
+              }));
+          }
+
+          // TODO: Support channel binds
+          return this.Promise.resolve();
+        } catch (err) {
+          this.logger.error(err);
+          return this.Promise.reject(err);
+        }
+      },
+
       /**
        * Send message to exchange
        *
@@ -34,6 +132,7 @@ module.exports = function createService(url, options) {
         return this.channel
           .publish(exchange, routingKey, Buffer.from(JSON.stringify(message)), options);
       },
+
       /**
        * Send message to queue
        *
@@ -77,7 +176,6 @@ module.exports = function createService(url, options) {
       },
 
       /**
-       * /**
        * Validate message
        *
        * @param {Object} payload
@@ -97,6 +195,7 @@ module.exports = function createService(url, options) {
               .reject(new ValidationError('Parameters validation error!', null, result));
           }
         }
+        return this.Promise.resolve();
       },
 
       /**
@@ -133,46 +232,18 @@ module.exports = function createService(url, options) {
       },
     },
 
-    /**
-     * Service created hook
-     * @returns {Promise<void>}
-     */
-    async created() {
-      const connection = await amqplib.connect(url, options);
-      this.channel = await connection.createChannel();
-    },
 
     /**
      * Service started hook
-     * @returns {Promise<*>}
+     * @returns {Promise<void>}
      */
     async started() {
-      if (this.schema.queues) {
-        await Promise.all(Object.entries(this.schema.queues)
-          .map(async ([queueName, options]) => {
-            const { assertOnly, prefetch, queueOpts = { durable: true } } = options;
-            await this.channel.assertQueue(queueName, queueOpts);
-            if (!assertOnly) {
-              if (prefetch) {
-                await this.channel.prefetch(prefetch);
-              }
-              this.channel.consume(queueName, this.processMessage(options));
-            }
-          }));
-      }
-      if (this.schema.exchanges) {
-        await Promise.all(Object.entries(this.schema.exchanges)
-          .map(async ([exchangeName, options]) => {
-            const { exchangeOpts = { durable: true }, type = 'direct' } = options;
-            await this.channel.assertExchange(exchangeName, type, exchangeOpts);
-          }));
-      }
-      return this.Promise.resolve();
+      await this._connect();
     },
 
     /**
      * Service stopped hook
-     * @returns {Promise<*>}
+     * @returns {Promise<void>}
      */
     async stopped() {
       await this.channel.connection.close();

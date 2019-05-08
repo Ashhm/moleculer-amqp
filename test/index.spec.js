@@ -4,8 +4,8 @@ const amqplib = require('amqplib-mocks');
 const chai = require('chai');
 const proxyquire = require('proxyquire');
 const sinon = require('sinon');
-const { ServiceBroker, Service } = require('moleculer');
 const sinonChai = require('sinon-chai');
+const { ServiceBroker, Service } = require('moleculer');
 
 const amqpMixin = proxyquire('../src', { amqplib });
 const url = 'amqp://localhost';
@@ -13,7 +13,7 @@ const { expect } = chai;
 chai.should();
 chai.use(sinonChai);
 
-describe('AMQP queues', () => {
+describe('AMQP mixin', () => {
   const broker = new ServiceBroker({ logger: false });
   const mixinMethods = [
     'acceptMessage',
@@ -23,7 +23,7 @@ describe('AMQP queues', () => {
     'validate',
   ];
 
-  describe('As service', async () => {
+  describe('As service', () => {
     let service;
 
     before('create a service', async () => {
@@ -100,6 +100,13 @@ describe('AMQP queues', () => {
       return broker.start();
     });
 
+    after('destroy service', () => Promise
+      .all([broker.stop(), broker.destroyService(service)]));
+
+    after('clear spies', () => {
+      amqplib.connect.resetHistory();
+    });
+
     it('should be created', () => expect(service).to.exist);
 
     it('should be an instance of Service',
@@ -109,8 +116,8 @@ describe('AMQP queues', () => {
       expect(service)
         .to.be.an('object')
         .that.include.all.keys(mixinMethods)
-        .and.satisfy(service => mixinMethods
-          .every(method => expect(service[method])
+        .and.satisfy(mixins => mixinMethods
+          .every(method => expect(mixins[method])
             .to.be.a('function')));
     });
 
@@ -176,6 +183,229 @@ describe('AMQP queues', () => {
         expect(args[1]).to.deep.equal(wrongMessage);
         return errorStrategy.should.have.been.calledOnce;
       });
+    });
+  });
+
+  describe('Reconnection mechanism', () => {
+    const schema = {
+      name: 'reconnection',
+      mixins: [amqpMixin(url)],
+    };
+    let connection;
+    let clock;
+    let service;
+
+    before('use fake timers', () => {
+      clock = sinon.useFakeTimers();
+    });
+
+    after('restore timers', () => {
+      clock.restore();
+    });
+
+    describe('on service hooks', () => {
+      before('create a service', async () => {
+        service = await broker.createService(schema);
+      });
+
+      before('add stubs and spies', () => {
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
+      });
+
+      describe('created', () => {
+        after('clear spies', () => {
+          sinon.resetHistory();
+        });
+
+        it('should not call amqplib connect',
+          () => expect(amqplib.connect).to.not.have.been.calledOnce);
+      });
+
+      describe('started', () => {
+        before('run broker', () => broker.start());
+
+        before('get connection', () => {
+          ({ channel: { connection } } = service);
+        });
+
+        after('clear spies', () => {
+          amqplib.connect.resetHistory();
+          sinon.resetHistory();
+        });
+
+        it('should call service _setup method',
+          () => expect(service._setup).to.have.been.calledOnce);
+
+        it('should not call service _reconnect method',
+          () => expect(service._reconnect).to.not.have.been.called);
+      });
+
+      describe('stopped', () => {
+        before('stop broker', () => broker.stop());
+
+        after('clear spies', () => {
+          amqplib.connect.resetHistory();
+          sinon.resetHistory();
+        });
+
+        after('destroy service', () => broker.destroyService(service));
+
+        it('should not call connect after reconnection timeout', () => {
+          clock.tick(service.metadata.reconnectTimeout);
+          return expect(service._connect).to.not.have.been.called;
+        });
+
+        it('should not call amqplib connect',
+          () => expect(amqplib.connect).to.not.have.been.called);
+
+        it('should set service channel to null', () => expect(service.channel).to.be.null);
+      });
+    });
+
+    describe('on connection closed', () => {
+      before('create a service', async () => {
+        service = await broker.createService(schema);
+        return broker.start();
+      });
+
+      before('add stubs and spies', () => {
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
+      });
+
+      before('close amqp connection', () => {
+        service.channel.connection.close();
+      });
+
+      after('clear spies', () => {
+        amqplib.connect.resetHistory();
+        sinon.resetHistory();
+      });
+
+      after('destroy service', () => Promise
+        .all([broker.stop(), broker.destroyService(service)]));
+
+      it('should set service channel to null',
+        () => expect(service.channel).to.be.null);
+
+      it('should not call _reconnect', () => expect(service._reconnect).to.not.have.been.called);
+
+      it('should not call _connect', () => expect(service._connect).to.not.have.been.called);
+
+      it('should call amqplib connect only once',
+        () => expect(amqplib.connect).to.have.been.calledOnce);
+    });
+
+    describe('on connection error', () => {
+      before('create a service', async () => {
+        service = await broker.createService(schema);
+        return broker.start();
+      });
+
+      before('add stubs and spies', () => {
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
+      });
+
+      before('get connection and call extended connection error method', () => {
+        ({ channel: { connection } } = service);
+        connection.closeWithError = sinon.stub().callsFake(() => {
+          connection.on.withArgs('error').yield();
+          connection.close();
+        });
+        connection.closeWithError();
+      });
+
+      after('clear spies', () => {
+        amqplib.connect.resetHistory();
+        sinon.resetHistory();
+      });
+
+      after('destroy service', () => Promise
+        .all([broker.stop(), broker.destroyService(service)]));
+
+      it('should set service channel to null', () => expect(service.channel).to.be.null);
+
+      it('should call _reconnect',
+        () => expect(service._reconnect).to.have.been.calledOnce);
+
+      it('should call _connect after reconnection timeout', () => {
+        clock.tick(service.metadata.reconnectTimeout);
+        return expect(service._connect).to.have.been.calledOnce;
+      });
+
+      it('should call _setup', () => expect(service._setup).to.have.been.calledOnce);
+
+      it('should not call connect after next reconnection timeout', () => {
+        clock.tick(service.metadata.reconnectTimeout);
+        return expect(service._connect).to.not.have.been.calledTwice
+          && expect(service._connect).to.have.been.calledOnce;
+      });
+
+      it('should call amqplib connect',
+        () => expect(amqplib.connect).to.have.been.called);
+
+      it('should set service channel', () => expect(service.channel).to.exist);
+    });
+
+    describe('on multiple errors', () => {
+      before('create a service', async () => {
+        service = await broker.createService(schema);
+        return broker.start();
+      });
+
+      before('add stubs and spies', () => {
+        sinon.spy(service, '_connect');
+        sinon.spy(service, '_reconnect');
+        sinon.spy(service, '_setup');
+        amqplib.connect.onCall(1).callsFake(() => Promise.reject());
+        amqplib.connect.onCall(2).callsFake(() => Promise.reject());
+      });
+
+      before('get connection and call extended connection error method', () => {
+        ({ channel: { connection } } = service);
+        connection.closeWithError = sinon.stub().callsFake(() => {
+          connection.on.withArgs('error').yield();
+          connection.close();
+        });
+        connection.closeWithError();
+      });
+
+      after('clear spies', () => {
+        amqplib.connect.resetHistory();
+        sinon.resetHistory();
+      });
+
+      after('destroy service', () => Promise
+        .all([broker.stop(), broker.destroyService(service)]));
+
+      it('should set service channel to null', () => expect(service.channel).to.be.null);
+
+      it('should call connect after first reconnection timeout', () => {
+        clock.tick(service.metadata.reconnectTimeout);
+        return expect(service._connect).to.have.been.calledOnce;
+      });
+
+      it('should call connect after second reconnection timeout', () => {
+        clock.tick(service.metadata.reconnectTimeout);
+        return expect(service._connect).to.have.been.calledTwice;
+      });
+
+      it('should call connect after third reconnection timeout', () => {
+        clock.tick(service.metadata.reconnectTimeout);
+        return expect(service._connect).to.have.been.calledThrice;
+      });
+
+      it('should not call connect after fourth reconnection timeout', () => {
+        clock.tick(service.metadata.reconnectTimeout);
+        return expect(service._connect).to.have.been.calledThrice;
+      });
+
+      it('should set service channel', () => expect(service.channel).to.exist);
     });
   });
 });
