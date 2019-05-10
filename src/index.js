@@ -33,7 +33,7 @@ module.exports = function createService(url, socketOptions) {
       async _connect() {
         try {
           this.logger.info('Connecting to the transporter with AMQP mixin...');
-          const connection = await amqplib.connect(socketOptions);
+          const connection = await amqplib.connect(url, socketOptions);
           this.logger.info('AMQP mixin is connected.');
           this._isReconnecting = false;
 
