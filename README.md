@@ -1,4 +1,4 @@
-# moleculer-amqp
+# moleculer-amqp [![NPM version](https://img.shields.io/npm/v/moleculer-amqp.svg?color=green)](https://www.npmjs.com/package/moleculer-amqp)
 
 Task queue mixin for [AMQP](http://www.squaremobius.net/amqp.node/)
 
@@ -51,7 +51,7 @@ broker.createService({
 });
 ```
 
-# Test
+## Test
 ```
 $ npm test
 ```
