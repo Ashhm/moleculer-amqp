@@ -80,14 +80,17 @@ module.exports = function createService(url, socketOptions) {
        */
       async _setup() {
         try {
+          this.queues = {};
           const { queues, exchanges, channel = {} } = this.schema;
           await this.channel.prefetch(channel.prefetch || 1);
 
           if (queues) {
             await this.Promise.all(Object.entries(queues)
               .map(async ([queueName, options]) => {
-                const { queueOpts = { durable: true }, ...restOptions } = options;
-                await this.channel.assertQueue(queueName, queueOpts);
+                const { queueOpts = { durable: true }, randomName, ...restOptions } = options;
+                const name = randomName ? '' : queueName;
+                const { queue } = await this.channel.assertQueue(name, queueOpts);
+                this.queues[queueName] = queue;
                 if (restOptions.handler) {
                   if (!(restOptions.handler instanceof Function)) {
                     const message = 'Queue handler should be a function';
