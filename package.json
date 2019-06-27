@@ -1,6 +1,6 @@
 {
   "name": "moleculer-amqp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Work queues for rabbitMQ with amqplib",
   "main": "index.js",
   "author": "Bulakh Serhii",

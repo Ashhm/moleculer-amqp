@@ -221,7 +221,7 @@ module.exports = function createService(url, socketOptions) {
             const { serializer } = this.broker;
             payload = serializer.deserialize(message.content.toString());
             await this.validate(payload, params);
-            await handler(payload);
+            await handler.call(this, payload);
             await this.acceptMessage(message);
           } catch (error) {
             this.logger.error(error);
