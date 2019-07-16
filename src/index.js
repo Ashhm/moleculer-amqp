@@ -40,12 +40,14 @@ module.exports = function createService(url, socketOptions) {
           connection.on('error', (err) => {
             this.channel = null;
             this.logger.warn('AMQP mixin connection error.', err);
-            this._reconnect();
           });
 
           connection.on('close', () => {
             this.channel = null;
             this.logger.info('AMQP mixin connection is closed.');
+            if (!this._isStoped) {
+              this._reconnect();
+            }
           });
 
           this.channel = await connection.createChannel();
@@ -241,6 +243,7 @@ module.exports = function createService(url, socketOptions) {
      * @returns {Promise<void>}
      */
     async started() {
+      this._isStoped = false;
       await this._connect();
     },
 
@@ -249,6 +252,7 @@ module.exports = function createService(url, socketOptions) {
      * @returns {Promise<void>}
      */
     async stopped() {
+      this._isStoped = true;
       await this.channel.connection.close();
     },
   };
