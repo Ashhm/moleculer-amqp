@@ -86,10 +86,23 @@ module.exports = function createService(url, socketOptions) {
           const { queues, exchanges, channel = {} } = this.schema;
           await this.channel.prefetch(channel.prefetch || 1);
 
+          if (exchanges) {
+            await this.Promise.all(Object.entries(this.schema.exchanges)
+              .map(async ([exchangeName, options]) => {
+                const { exchangeOpts = { durable: true }, type = 'direct' } = options;
+                await this.channel.assertExchange(exchangeName, type, exchangeOpts);
+              }));
+          }
+
           if (queues) {
             await this.Promise.all(Object.entries(queues)
               .map(async ([queueName, options]) => {
-                const { queueOpts = { durable: true }, randomName, ...restOptions } = options;
+                const {
+                  queueOpts = { durable: true },
+                  randomName,
+                  bindings,
+                  ...restOptions
+                } = options;
                 const name = randomName ? '' : queueName;
                 const { queue } = await this.channel.assertQueue(name, queueOpts);
                 this.queues[queueName] = queue;
@@ -100,14 +113,12 @@ module.exports = function createService(url, socketOptions) {
                   }
                   this.channel.consume(queueName, this.processMessage(restOptions));
                 }
-              }));
-          }
-
-          if (exchanges) {
-            await this.Promise.all(Object.entries(this.schema.exchanges)
-              .map(async ([exchangeName, options]) => {
-                const { exchangeOpts = { durable: true }, type = 'direct' } = options;
-                await this.channel.assertExchange(exchangeName, type, exchangeOpts);
+                if (bindings) {
+                  await this.Promise.all(
+                    Object.entries(bindings)
+                      .map(async ([exchangeName, key]) => this
+                        .channel.bindQueue(name, exchangeName, key)));
+                }
               }));
           }
 
