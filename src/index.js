@@ -116,7 +116,7 @@ module.exports = function createService(url, socketOptions) {
                 if (bindings) {
                   await this.Promise.all(
                     Object.entries(bindings)
-                      .map(async ([exchangeName, key]) => this
+                      .map(([exchangeName, key]) => this
                         .channel.bindQueue(name, exchangeName, key)));
                 }
               }));
