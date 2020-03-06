@@ -237,7 +237,7 @@ module.exports = function createService(url, socketOptions) {
             await handler.call(this, payload);
             await this.acceptMessage(message);
           } catch (error) {
-            this.logger.error(error);
+            this.logger.debug(error);
             // Error handler may change a rejection strategy
             const result = typeof errorStrategy === 'function'
               ? await errorStrategy.call(this, error, payload) : errorStrategy;
