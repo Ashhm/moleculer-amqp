@@ -264,7 +264,9 @@ module.exports = function createService(url, socketOptions) {
      */
     async stopped() {
       this._isStoped = true;
-      await this.channel.connection.close();
+      if (this.channel) {
+        await this.channel.connection.close();
+      }
     },
   };
 };
