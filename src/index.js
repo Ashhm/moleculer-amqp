@@ -200,8 +200,9 @@ module.exports = function createService(url, socketOptions) {
        * @returns {*}
        */
       validate(payload, params) {
-        const { options: { validation }, validator } = this.broker;
-        if (validation && params) {
+        const { validator } = this.broker;
+        const isValidationEnabled = !!this.broker.options.validator;
+        if (isValidationEnabled && params) {
           const check = validator.compile(params);
           const result = check(payload);
           if (result === true) {
