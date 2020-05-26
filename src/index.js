@@ -83,8 +83,8 @@ module.exports = function createService(url, socketOptions) {
       async _setup() {
         try {
           this.queues = {};
-          const { queues, exchanges, channel = {} } = this.schema;
-          await this.channel.prefetch(channel.prefetch || 1);
+          const { queues, exchanges, channelOpts = {} } = this.schema;
+          await this.channel.prefetch(channelOpts.prefetch || 1);
 
           if (exchanges) {
             await this.Promise.all(Object.entries(this.schema.exchanges)
