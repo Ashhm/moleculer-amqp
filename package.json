@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "amqplib": "0.5.3",
-    "moleculer": "0.13.7"
+    "moleculer": "^0.14.7",
+    "uuid": "^8.1.0"
   },
   "keywords": [
     "amqp",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "amqplib-mocks": "^1.3.0",
     "chai": "4.2.0",
+    "chai-as-promised": "^7.1.1",
     "eslint": "5.15.1",
     "eslint-config-airbnb-base": "13.1.0",
     "eslint-plugin-import": "2.16.0",
