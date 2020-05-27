@@ -338,6 +338,8 @@ module.exports = function createService(url, socketOptions) {
           } catch (err) {
             reject(err);
           }
+
+          return true;
         });
       },
     },

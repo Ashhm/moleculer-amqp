@@ -15,8 +15,6 @@ chai.should();
 chai.use(chaiAsPromised);
 chai.use(sinonChai);
 
-const sleep = n => new Promise(resolve => setTimeout(resolve, n));
-
 describe('AMQP mixin', () => {
   const broker = new ServiceBroker({ logger: false });
   const mixinMethods = [
@@ -44,10 +42,10 @@ describe('AMQP mixin', () => {
   });
 
   describe('As mixin', () => {
-    const simpleQueueHandler = sinon.spy();
-    const replyToQueueHandler = sinon.spy();
-    const withValidatorQueueHandler = sinon.spy();
-    const errorStrategy = sinon.spy();
+    const simpleQueueHandler = sinon.stub();
+    const replyToQueueHandler = sinon.stub();
+    const withValidatorQueueHandler = sinon.stub();
+    const errorStrategy = sinon.stub();
     const schema = {
       name: 'test',
       settings: {
@@ -208,6 +206,12 @@ describe('AMQP mixin', () => {
         before('bind queue to exchange',
           () => service.channel.bindQueue('simple', 'direct', 'routingKey'));
 
+        before('mock simpleQueueHandler', () => {
+          simpleQueueHandler.callsFake((payload, { correlationId, replyTo }) => {
+            service.sendToQueue(replyTo, replyToMessage, { correlationId });
+          });
+        });
+
         before('rpc', () => {
           service.rpc(
             simpleMessage,
@@ -215,21 +219,13 @@ describe('AMQP mixin', () => {
           );
         });
 
-        before('wait for event processing', done => setTimeout(done, 500));
-
         after('clear spy history', () => {
-          simpleQueueHandler.resetHistory();
+          simpleQueueHandler.reset();
           replyToQueueHandler.resetHistory();
         });
 
         it('should call simpleQueueHandler on message appear in simple queue', async () => {
           simpleQueueHandler.should.have.been.calledWith(simpleMessage);
-
-          // Simulate putting response to replyTo queue
-          const { correlationId, replyTo } = simpleQueueHandler.args[0][1];
-          service.sendToQueue(replyTo, replyToMessage, { correlationId });
-          await sleep(500);
-
           return simpleQueueHandler.should.have.been.calledOnce;
         });
 
@@ -240,6 +236,12 @@ describe('AMQP mixin', () => {
       });
 
       describe('publish to queue', () => {
+        before('mock simpleQueueHandler', () => {
+          simpleQueueHandler.callsFake((payload, { correlationId, replyTo }) => {
+            service.sendToQueue(replyTo, replyToMessage, { correlationId });
+          });
+        });
+
         before('rpc', () => {
           service.rpc(
             simpleMessage,
@@ -247,21 +249,13 @@ describe('AMQP mixin', () => {
           );
         });
 
-        before('wait for event processing', done => setTimeout(done, 500));
-
         after('clear spy history', () => {
-          simpleQueueHandler.resetHistory();
+          simpleQueueHandler.reset();
           replyToQueueHandler.resetHistory();
         });
 
         it('should call simpleQueueHandler on message appear in simple queue', async () => {
           simpleQueueHandler.should.have.been.calledWith(simpleMessage);
-
-          // Simulate putting response to replyTo queue
-          const { correlationId, replyTo } = simpleQueueHandler.args[0][1];
-          service.sendToQueue(replyTo, replyToMessage, { correlationId });
-          await sleep(500);
-
           return simpleQueueHandler.should.have.been.calledOnce;
         });
 
@@ -281,8 +275,6 @@ describe('AMQP mixin', () => {
           );
         });
 
-        before('wait for event processing', done => setTimeout(done, 500));
-
         after('clear spy history', () => {
           simpleQueueHandler.resetHistory();
           replyToQueueHandler.resetHistory();
@@ -294,10 +286,6 @@ describe('AMQP mixin', () => {
 
         it('should call simpleQueueHandler on message appear in simple queue', async () => {
           simpleQueueHandler.should.have.been.calledWith(simpleMessage);
-
-          // Do not simulate putting response to replyTo queue
-          await sleep(500);
-
           return simpleQueueHandler.should.have.been.calledOnce;
         });
 
