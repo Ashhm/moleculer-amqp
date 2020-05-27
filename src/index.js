@@ -318,7 +318,7 @@ module.exports = function createService(url, socketOptions) {
 
             if (!isSent) {
               await this.disconnectConsumer(consumer);
-              reject(new MoleculerError(
+              return reject(new MoleculerError(
                 'Message has not been published',
                 424,
                 '',
