@@ -2,15 +2,17 @@
 
 const amqplib = require('amqplib-mocks');
 const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
 const proxyquire = require('proxyquire');
 const sinon = require('sinon');
 const sinonChai = require('sinon-chai');
-const { ServiceBroker, Service } = require('moleculer');
+const { Errors, ServiceBroker, Service } = require('moleculer');
 
 const amqpMixin = proxyquire('../src', { amqplib });
 const url = 'amqp://localhost';
 const { expect } = chai;
 chai.should();
+chai.use(chaiAsPromised);
 chai.use(sinonChai);
 
 describe('AMQP mixin', () => {
@@ -19,6 +21,7 @@ describe('AMQP mixin', () => {
     'acceptMessage',
     'processMessage',
     'rejectMessage',
+    'rpc',
     'sendToQueue',
     'validate',
   ];
@@ -39,11 +42,15 @@ describe('AMQP mixin', () => {
   });
 
   describe('As mixin', () => {
-    const simpleQueueHandler = sinon.spy();
-    const withValidatorQueueHandler = sinon.spy();
-    const errorStrategy = sinon.spy();
+    const simpleQueueHandler = sinon.stub();
+    const replyToQueueHandler = sinon.stub();
+    const withValidatorQueueHandler = sinon.stub();
+    const errorStrategy = sinon.stub();
     const schema = {
       name: 'test',
+      settings: {
+        rpcTimeout: 1000,
+      },
       mixins: [amqpMixin(url)],
       queues: {
         simple: {
@@ -64,6 +71,10 @@ describe('AMQP mixin', () => {
             a: 'string',
             b: 'string',
           },
+          prefetch: 1,
+        },
+        replyTo: {
+          handler: replyToQueueHandler,
           prefetch: 1,
         },
       },
@@ -92,7 +103,8 @@ describe('AMQP mixin', () => {
         },
       },
     };
-    const simpleMessage = {};
+    const simpleMessage = { simple: true };
+    const replyToMessage = { replyTo: true };
     let service;
 
     before('create a service', async () => {
@@ -151,6 +163,10 @@ describe('AMQP mixin', () => {
 
       before('wait for event processing', done => setTimeout(done, 500));
 
+      after('clear spy history', () => {
+        simpleQueueHandler.resetHistory();
+      });
+
       it('should call simpleQueueHandler on message appear in simple queue', () => {
         simpleQueueHandler.should.have.been.calledWith(simpleMessage);
         return simpleQueueHandler.should.have.been.calledOnce;
@@ -182,6 +198,100 @@ describe('AMQP mixin', () => {
         expect(args[0]).to.be.instanceof(Error);
         expect(args[1]).to.deep.equal(wrongMessage);
         return errorStrategy.should.have.been.calledOnce;
+      });
+    });
+
+    describe('rpc', () => {
+      describe('publish to exchange', () => {
+        before('bind queue to exchange',
+          () => service.channel.bindQueue('simple', 'direct', 'routingKey'));
+
+        before('mock simpleQueueHandler', () => {
+          simpleQueueHandler.callsFake((payload, { correlationId, replyTo }) => {
+            service.sendToQueue(replyTo, replyToMessage, { correlationId });
+          });
+        });
+
+        before('rpc', () => {
+          service.rpc(
+            simpleMessage,
+            { exchangeName: 'direct', routingKey: 'routingKey', replyTo: 'replyTo' },
+          );
+        });
+
+        after('clear spy history', () => {
+          simpleQueueHandler.reset();
+          replyToQueueHandler.resetHistory();
+        });
+
+        it('should call simpleQueueHandler on message appear in simple queue', async () => {
+          simpleQueueHandler.should.have.been.calledWith(simpleMessage);
+          return simpleQueueHandler.should.have.been.calledOnce;
+        });
+
+        it('should call replyToQueueHandler on message appear in replyTo queue', () => {
+          replyToQueueHandler.should.have.been.calledWith(replyToMessage);
+          return replyToQueueHandler.should.have.been.calledOnce;
+        });
+      });
+
+      describe('publish to queue', () => {
+        before('mock simpleQueueHandler', () => {
+          simpleQueueHandler.callsFake((payload, { correlationId, replyTo }) => {
+            service.sendToQueue(replyTo, replyToMessage, { correlationId });
+          });
+        });
+
+        before('rpc', () => {
+          service.rpc(
+            simpleMessage,
+            { queueName: 'simple', replyTo: 'replyTo' },
+          );
+        });
+
+        after('clear spy history', () => {
+          simpleQueueHandler.reset();
+          replyToQueueHandler.resetHistory();
+        });
+
+        it('should call simpleQueueHandler on message appear in simple queue', async () => {
+          simpleQueueHandler.should.have.been.calledWith(simpleMessage);
+          return simpleQueueHandler.should.have.been.calledOnce;
+        });
+
+        it('should call replyToQueueHandler on message appear in replyTo queue', () => {
+          replyToQueueHandler.should.have.been.calledWith(replyToMessage);
+          return replyToQueueHandler.should.have.been.calledOnce;
+        });
+      });
+
+      describe('request timeout error', () => {
+        let promise;
+
+        before('rpc', () => {
+          promise = service.rpc(
+            simpleMessage,
+            { queueName: 'simple', replyTo: 'replyTo' },
+          );
+        });
+
+        after('clear spy history', () => {
+          simpleQueueHandler.resetHistory();
+          replyToQueueHandler.resetHistory();
+        });
+
+        it('should be rejected with request timeout error', () => (
+          promise.should.be.rejectedWith(Errors.MoleculerRetryableError, 'Request timeout')
+        ));
+
+        it('should call simpleQueueHandler on message appear in simple queue', async () => {
+          simpleQueueHandler.should.have.been.calledWith(simpleMessage);
+          return simpleQueueHandler.should.have.been.calledOnce;
+        });
+
+        it('should not call replyToQueueHandler', () => (
+          replyToQueueHandler.should.not.have.been.called
+        ));
       });
     });
   });

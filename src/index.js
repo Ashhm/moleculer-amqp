@@ -1,11 +1,14 @@
 'use strict';
 
+const uuid = require('uuid');
 const amqplib = require('amqplib');
 const {
   Errors: {
+    MoleculerError,
+    MoleculerRetryableError,
+    ServiceSchemaError,
     ValidationError,
   },
-  ServiceSchemaError,
 } = require('moleculer');
 /**
  * AMQP mixin
@@ -19,6 +22,9 @@ const {
 module.exports = function createService(url, socketOptions) {
   return {
     name: 'amqp',
+    settings: {
+      rpcTimeout: 5000,
+    },
     metadata: {
       reconnectTimeout: 5000,
     },
@@ -235,7 +241,7 @@ module.exports = function createService(url, socketOptions) {
             const { serializer } = this.broker;
             payload = serializer.deserialize(message.content.toString());
             await this.validate(payload, params);
-            await handler.call(this, payload);
+            await handler.call(this, payload, message.properties);
             await this.acceptMessage(message);
           } catch (error) {
             this.logger.debug(error);
@@ -246,6 +252,95 @@ module.exports = function createService(url, socketOptions) {
             await this.rejectMessage(message, allUpTo, requeue);
           }
         };
+      },
+
+      /**
+       * Disconnect consumer
+       *
+       * @private
+       *
+       * @param {Object} consumer Consumer
+       * @param {String} consumer.consumerTag Consumer tag
+       */
+      async disconnectConsumer(consumer) {
+        if (consumer && consumer.consumerTag) {
+          try {
+            await this.channel.cancel(consumer.consumerTag);
+          } catch (err) {
+            this.logger.warn('An error occurred during disconnecting consumer', err);
+          }
+        }
+      },
+
+      /**
+       * RPC
+       *
+       * @param {Object} payload Payload to send to the queue
+       * @param {Object} options Options for transport
+       * @param {String} options.exchangeName Exchange name
+       * @param {String} options.routingKey Routing key
+       * @param {String} options.queueName Queue name, used w/o exchange
+       * @param {String} options.replyTo Queue to put reply to
+       * @returns {Promise<*>}
+       */
+      rpc(payload, { exchangeName, routingKey = '', queueName, replyTo }) {
+        return new Promise(async (resolve, reject) => {
+          const correlationId = uuid.v4();
+          let timeout;
+
+          try {
+            const consumer = await this.channel.consume(replyTo, async (message) => {
+              // Once consumer is canceled by RabbitMQ
+              // callback is invoked with a message equals null
+              if (message) {
+                if (message.properties.correlationId === correlationId) {
+                  try {
+                    resolve(this.broker.serializer.deserialize(message.content.toString()));
+                  } catch (err) {
+                    reject(err);
+                  } finally {
+                    clearTimeout(timeout);
+                    this.acceptMessage(message);
+                    // Consumer callback may be fired even before we get its data
+                    const { consumerTag } = message.fields;
+                    await this.disconnectConsumer({ consumerTag });
+                  }
+                } else {
+                  this.rejectMessage(message);
+                }
+              }
+            });
+
+            const options = { correlationId, persistent: true, replyTo };
+            const isSent = exchangeName
+              ? this.publish(exchangeName, routingKey, payload, options)
+              : this.sendToQueue(queueName, payload, options);
+
+            if (!isSent) {
+              await this.disconnectConsumer(consumer);
+              return reject(new MoleculerError(
+                'Message has not been published',
+                424,
+                '',
+                payload,
+              ));
+            }
+
+            if (this.settings.rpcTimeout) {
+              timeout = setTimeout(
+                async () => {
+                  await this.disconnectConsumer(consumer);
+                  reject(new MoleculerRetryableError('Request timeout', 504));
+                },
+                this.settings.rpcTimeout,
+              );
+            }
+          } catch (err) {
+            reject(err);
+          }
+
+          return true;
+        });
       },
     },
 
