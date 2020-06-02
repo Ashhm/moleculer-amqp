@@ -203,7 +203,8 @@ module.exports = function createService(url, socketOptions) {
        * @param {Object} payload
        * @param {Object} params params it's validation schema
        * it can be defined for each queue as params field
-       * @returns {*}
+       * @returns {Boolean}
+       * @throws {ValidationError}
        */
       validate(payload, params) {
         const { validator } = this.broker;
@@ -212,13 +213,12 @@ module.exports = function createService(url, socketOptions) {
           const check = validator.compile(params);
           const result = check(payload);
           if (result === true) {
-            return this.Promise.resolve();
+            return true;
           } else {
-            return this.Promise
-              .reject(new ValidationError('Parameters validation error!', null, result));
+            throw new ValidationError('Parameters validation error!', null, result);
           }
         }
-        return this.Promise.resolve();
+        return true;
       },
 
       /**
@@ -240,7 +240,7 @@ module.exports = function createService(url, socketOptions) {
           try {
             const { serializer } = this.broker;
             payload = serializer.deserialize(message.content.toString());
-            await this.validate(payload, params);
+            this.validate(payload, params);
             await handler.call(this, payload, message.properties);
             await this.acceptMessage(message);
           } catch (error) {
