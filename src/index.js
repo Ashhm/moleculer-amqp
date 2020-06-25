@@ -247,7 +247,8 @@ module.exports = function createService(url, socketOptions) {
             this.logger.debug(error);
             // Error handler may change a rejection strategy
             const result = typeof errorStrategy === 'function'
-              ? await errorStrategy.call(this, error, payload) : errorStrategy;
+              ? await errorStrategy.call(this, error, payload, message.properties)
+              : errorStrategy;
             const { allUpTo = false, requeue = true } = result || {};
             await this.rejectMessage(message, allUpTo, requeue);
           }
