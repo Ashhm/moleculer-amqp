@@ -284,7 +284,7 @@ module.exports = function createService(url, socketOptions) {
        * @param {String} options.replyTo Queue to put reply to
        * @returns {Promise<*>}
        */
-      rpc(payload, { exchangeName, routingKey = '', queueName, replyTo }) {
+      rpc(payload, { exchangeName, routingKey = '', queueName, replyTo, messageTTL }) {
         return new Promise(async (resolve, reject) => {
           const correlationId = uuid.v4();
           let timeout;
@@ -312,7 +312,7 @@ module.exports = function createService(url, socketOptions) {
               }
             });
 
-            const options = { correlationId, persistent: true, replyTo };
+            const options = { correlationId, persistent: true, replyTo, expiration: messageTTL };
             const isSent = exchangeName
               ? this.publish(exchangeName, routingKey, payload, options)
               : this.sendToQueue(queueName, payload, options);
