@@ -207,15 +207,15 @@ describe('AMQP mixin', () => {
           () => service.channel.bindQueue('simple', 'direct', 'routingKey'));
 
         before('mock simpleQueueHandler', () => {
-          simpleQueueHandler.callsFake((payload, { correlationId, replyTo }) => {
-            service.sendToQueue(replyTo, replyToMessage, { correlationId });
+          simpleQueueHandler.callsFake((payload, { correlationId, replyTo, messageTTL }) => {
+            service.sendToQueue(replyTo, replyToMessage, { correlationId, messageTTL });
           });
         });
 
         before('rpc', () => {
           service.rpc(
             simpleMessage,
-            { exchangeName: 'direct', routingKey: 'routingKey', replyTo: 'replyTo' },
+            { exchangeName: 'direct', routingKey: 'routingKey', replyTo: 'replyTo', messageTTL: '1000' },
           );
         });
 
@@ -237,15 +237,15 @@ describe('AMQP mixin', () => {
 
       describe('publish to queue', () => {
         before('mock simpleQueueHandler', () => {
-          simpleQueueHandler.callsFake((payload, { correlationId, replyTo }) => {
-            service.sendToQueue(replyTo, replyToMessage, { correlationId });
+          simpleQueueHandler.callsFake((payload, { correlationId, replyTo, messageTTL }) => {
+            service.sendToQueue(replyTo, replyToMessage, { correlationId, messageTTL });
           });
         });
 
         before('rpc', () => {
           service.rpc(
             simpleMessage,
-            { queueName: 'simple', replyTo: 'replyTo' },
+            { queueName: 'simple', replyTo: 'replyTo', messageTTL: '1000' },
           );
         });
 
